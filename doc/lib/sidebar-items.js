@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":[["add",""],["test_func_for_bindgen",""]]};
