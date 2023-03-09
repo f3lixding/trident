@@ -13,54 +13,46 @@ pub struct Examiner {
     latest_humd: i32,
     threshold: i32,
     rules: NonNull<Vec<Box<dyn Rule>>>,
-    _pin: PhantomPinned,
 }
 
 impl Examiner {
-    pub fn get_water_count(self: Pin<&mut Self>) -> i32 {
+    pub fn get_water_count(&self) -> i32 {
         self.water_count
     }
 
-    pub fn get_latest_humd(self: &Self) -> &i32 {
+    pub fn get_latest_humd(&self) -> &i32 {
         &self.latest_humd
     }
 
-    pub fn update_humd(self: Pin<&mut Self>, humd_reading: i32) {
-        // unsafe {
-        //     if Pin::get_unchecked_mut(self).latest_humd == 12 {
-        //         turn_on_pump_for_duration(0);
-        //     }
-        // }
+    pub fn update_humd(&mut self, humd_reading: i32) {
+        // self.latest_humd = humd_reading;
     }
 
     pub fn get_threshold(self: &Self) -> &i32 {
         &self.threshold
     }
 
-    pub fn new(threshold: i32) -> Pin<Box<Self>> {
+    pub fn new(threshold: i32) -> Self {
         // TODO
         // - bind action callback from C side
-        let res = Self {
+        let mut res = Self {
             water_count: 0,
             latest_humd: 12,
             threshold,
             rules: NonNull::dangling(),
-            _pin: PhantomPinned,
         };
-        let mut boxed = Box::pin(res);
-        let rules = generate_rules_from_examiner(&mut boxed);
+        let rules = generate_rules_from_examiner(&mut res as *mut Self);
         let rules = Box::into_raw(Box::new(rules));
 
         // SAFETY: we are taking the reference of the raw pointer we just created to assign to an
         // examiner's field. We are not really dereferencing here
         unsafe {
-            let mut_ref: Pin<&mut Self> = Pin::as_mut(&mut boxed);
-            Pin::get_unchecked_mut(mut_ref).rules = NonNull::from(&*rules);
+            res.rules = NonNull::from(&*rules);
         }
-        boxed
+        res
     }
 
-    fn determine_action(self: &mut Pin<&mut Self>) -> Action {
+    fn determine_action(&mut self) -> Action {
         Action::Noop
         // SAFETY: we know this is safe because determine_action is a private method
         // and we should only call this after properly initializing rules field
@@ -82,11 +74,8 @@ impl Examiner {
         // }
     }
 
-    pub fn handle_humd_input(
-        mut self: Pin<&mut Self>,
-        humd_input: i32,
-    ) -> Result<i32, &'static str> {
-        self.as_mut().update_humd(humd_input);
+    pub fn handle_humd_input(&mut self, humd_input: i32) -> Result<i32, &'static str> {
+        self.update_humd(humd_input);
         match self.determine_action() {
             Action::Pump(amount) => {
                 // water here
@@ -119,11 +108,8 @@ impl Drop for Examiner {
     // this is needed because we want to make sure the Target pointed to by the self-referential
     // NonNull pointer is cleaned up when the Examiner struct is deallocated
     fn drop(&mut self) -> () {
-        unsafe { inner_drop(Pin::new_unchecked(self)) };
-        fn inner_drop(this: Pin<&mut Examiner>) {
-            let rules_ptr = this.rules.as_ptr();
-            let _ = Box::from(rules_ptr);
-        }
+        let rules_ptr = NonNull::as_ptr(self.rules);
+        let _ = Box::from(rules_ptr);
     }
 }
 

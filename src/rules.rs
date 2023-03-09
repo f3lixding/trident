@@ -53,10 +53,10 @@ impl Rule for TimeRule {
 
 /// This function needs to be called from the top level **after** Examiner has been instantiated
 pub fn generate_rules_from_examiner<'a>(
-    examiner: *mut Pin<Box<Examiner>>,
+    examiner: *mut Examiner,
 ) -> Vec<Box<dyn Rule + 'a>> {
     let examiner_mut_ref = unsafe {
-        Pin::get_unchecked_mut(Pin::as_mut(&mut *examiner))
+        &mut *examiner
     };
     let threshold_ref = examiner_mut_ref.get_threshold();
     let latest_humd_ref = examiner_mut_ref.get_latest_humd();
