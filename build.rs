@@ -9,13 +9,15 @@ fn main() {
         .with_crate(&crate_dir)
         .with_only_target_dependencies(true)
         .with_language(cbindgen::Language::C)
-        .generate() {
-            Ok(bindings) => {
-                bindings.write_to_file("./build/include/trident.h");
-            }
-            Err(e) => {
-                println!("cargo:warning=bindgen error: {}", e);
-                panic!("{}", e);
-            }
+        .with_config(cbindgen::Config::from_file("./cbindgen.toml").unwrap())
+        .generate()
+    {
+        Ok(bindings) => {
+            bindings.write_to_file("./build/include/trident.h");
         }
+        Err(e) => {
+            println!("cargo:warning=bindgen error: {}", e);
+            panic!("{}", e);
+        }
+    }
 }
