@@ -11,32 +11,26 @@ The main responsibilities for this crate are to:
 Implementing the packages, here are some of the things I learned:
 
 ### Self-referential data structure
-Source: 
-	- page 182 in "Rust for Rustaceans"
-	- [Pin module documentation](https://doc.rust-lang.org/std/pin/)
-
-The snippet below does the following:
-	- instantiates a Self with a field that is dangling (this is done via `NonNull`, more on that [[Rust Part aka the examiner#^f71ddf|later]] but well aligned (uninitialiazed). We leave this field uninitialized because this field is going to contain self-referential data. 
-	- wraps self in Pin with `Box::pin`. We want to do this because we have fields that references other fields in the same struct. If we do not ensure this entire struct has a stable location in memory, all of these references risk being invalidated. 
-	- in an unsafe block, it gets the raw pointer from the pin wrapper and assigns itself with the self-referential field
+Previously I had thought that the use of `Pin` is needed since this struct is self-referential. This is however, erroneous. From the moment the `Examiner` struct is constructed and passed to the pointer supplied from C side, this struct can never be moved since the handler never receives a `mut Examiner`.
+Parts of the previous construct remains. This is because the rules are generated from a "half initialized" examiner (using a shared reference). To bypass the borrow checker, a raw pointer of the `Examiner` is passed instead.
 ```rust
-fn new(data: String) -> Pin<Box<Self>> {
+fn new(data: String) -> Self {
 	let res = Unmovable {
 		data,
 		// we only create the pointer once the data is in place
 		// otherwise it will have already moved before we even started
 		slice: NonNull::dangling(),
-		_pin: PhantomPinned,
 	};
-	let mut boxed = Box::pin(res);
+	let mut examiner = {
+    ...
+  };
 
-	let slice = NonNull::from(&boxed.data);
+	let rules = generate_rules_from_examiner(&mut examiner as *mut Self);
 	// we know this is safe because modifying a field doesn't move the whole struct
 	unsafe {
-		let mut_ref: Pin<&mut Self> = Pin::as_mut(&mut boxed);
-		Pin::get_unchecked_mut(mut_ref).slice = slice;
+    examiner.rules = NonNull::from(&*rules);
 	}
-	boxed
+  examiner
 }
 ```
 
