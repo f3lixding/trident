@@ -6,12 +6,10 @@ mod rules;
 mod threshold_examiner;
 
 use alloc::boxed::Box;
-use core::{ffi::c_void, mem, panic::PanicInfo, pin::Pin};
-use threshold_examiner::{Action, Examiner};
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#[allow(unused_imports)]
+use core::{ffi::c_void, panic::PanicInfo};
+use threshold_examiner::Examiner;
 
 #[cfg(not(test))]
 #[panic_handler]
@@ -24,7 +22,6 @@ use alloc::alloc::*;
 extern "C" {
     fn malloc(layout_size: usize) -> *mut c_void;
     fn free(ptr: *mut c_void);
-    fn turn_on_pump_for_duration(amount: i32);
 }
 
 /// The global allocator type.
@@ -50,12 +47,9 @@ pub struct WrappedExaminer(*mut c_void);
 
 impl Drop for WrappedExaminer {
     fn drop(&mut self) {
+        let inner = self.0;
         unsafe {
-            let inner: &mut Pin<Box<Examiner>> = {
-                let inner = self.0;
-                let inner = &mut *(inner as *mut Pin<Box<Examiner>>);
-                inner
-            };
+            let inner = &mut *(inner as *mut Examiner);
             let _ = Box::from_raw(inner);
         }
     }
@@ -72,13 +66,13 @@ static MOISTURE_THRESHOLD: i32 = 30;
 /// The consumer of this api does not have to work with the inners of this struct outside of the
 /// provided api
 pub unsafe extern "C" fn initialize_examiner(mut _examiner_ptr: &mut *mut WrappedExaminer) -> i32 {
-    let mut examiner = Examiner::new(MOISTURE_THRESHOLD);
-    if *(examiner.as_ref().get_threshold()) != MOISTURE_THRESHOLD {
+    let examiner = Examiner::new(MOISTURE_THRESHOLD);
+    // sanity check
+    if *(examiner.get_threshold()) != MOISTURE_THRESHOLD || *(examiner.get_latest_humd()) != 12 {
         return 0;
     }
-    let examiner_raw_ptr = &mut examiner as *mut Pin<Box<Examiner>>;
+    let examiner_raw_ptr = Box::leak(Box::new(examiner)) as *mut Examiner;
     *_examiner_ptr = Box::into_raw(Box::from(WrappedExaminer(examiner_raw_ptr as *mut c_void)));
-    Box::leak(Box::new(examiner));
 
     1
 }
@@ -95,14 +89,14 @@ pub unsafe extern "C" fn initialize_examiner(mut _examiner_ptr: &mut *mut Wrappe
 /// * `examiner_ptr` - A pointer to an initialized wrapped examiner.
 /// * `humd_reading` - An integer representing the humdity reading in percentage
 pub unsafe extern "C" fn handle_humd_input(examiner_ptr: *mut WrappedExaminer, humd_reading: i32) {
-    let examiner: &mut Pin<Box<Examiner>> = {
+    let examiner: &mut Examiner = {
         let inner = (*examiner_ptr).0;
-        let inner = &mut *(inner as *mut Pin<Box<Examiner>>);
+        let inner = &mut *(inner as *mut Examiner);
         inner
     };
 
     // not sure what there is to do with the result at this point
-    let _ = examiner.as_mut().handle_humd_input(humd_reading);
+    let _ = examiner.handle_humd_input(humd_reading);
 }
 
 #[no_mangle]
@@ -116,16 +110,4 @@ pub unsafe extern "C" fn handle_humd_input(examiner_ptr: *mut WrappedExaminer, h
 /// * `examiner_ptr` - Apointer to an initialized wrapped examiner.
 pub unsafe extern "C" fn free_wrapped_examiner(examiner_ptr: *mut WrappedExaminer) {
     let _ = Box::from_raw(examiner_ptr);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::prelude::*;
-
-    #[test]
-    fn test_main_handler_handles() {}
-
-    #[test]
-    fn test_stats_provider_provides() {}
 }
