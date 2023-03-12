@@ -9,6 +9,7 @@ name = "trident"
 crate-type = ["staticlib"]
 
 [dependencies]
+alloc-cortex-m = "0.4.4"
 
 [build-dependencies]
 cbindgen = "0.24"

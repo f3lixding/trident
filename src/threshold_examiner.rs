@@ -1,6 +1,6 @@
 use crate::rules::{generate_rules_from_examiner, Rule};
 use alloc::{boxed::Box, vec::Vec};
-use core::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
+use core::ptr::NonNull;
 
 extern "C" {
     fn turn_on_pump_for_duration(amount: i32);
@@ -13,6 +13,7 @@ pub struct Examiner {
     latest_humd: i32,
     threshold: i32,
     rules: NonNull<Vec<Box<dyn Rule>>>,
+    is_watering: bool,
 }
 
 impl Examiner {
@@ -25,21 +26,35 @@ impl Examiner {
     }
 
     pub fn update_humd(&mut self, humd_reading: i32) {
-        // self.latest_humd = humd_reading;
+        self.latest_humd = humd_reading;
     }
 
-    pub fn get_threshold(self: &Self) -> &i32 {
+    pub fn set_threshold(&mut self, threshold: i32) {
+        self.threshold = threshold;
+    }
+
+    pub fn get_threshold(&self) -> &i32 {
         &self.threshold
+    }
+
+    fn post_water(&mut self) {
+        unsafe {
+            self.rules
+                .as_mut()
+                .iter_mut()
+                .for_each(|rule| rule.post_water());
+        }
     }
 
     pub fn new(threshold: i32) -> Self {
         // TODO
         // - bind action callback from C side
         let mut res = Self {
-            water_count: 0,
+            water_count: 1,
             latest_humd: 12,
             threshold,
             rules: NonNull::dangling(),
+            is_watering: false,
         };
         let rules = generate_rules_from_examiner(&mut res as *mut Self);
         let rules = Box::into_raw(Box::new(rules));
@@ -53,25 +68,29 @@ impl Examiner {
     }
 
     fn determine_action(&mut self) -> Action {
-        Action::Noop
         // SAFETY: we know this is safe because determine_action is a private method
         // and we should only call this after properly initializing rules field
-        // unsafe {
-        //     match self
-        //         .rules
-        //         .as_mut()
-        //         .iter_mut()
-        //         .map(|rule| rule.evaluate())
-        //         .find(|has_passed| !has_passed)
-        //     {
-        //         Some(_) => Action::Noop,
-        //         None => {
-        //             let water_amount = (self.threshold - self.latest_humd) as f32 * WATER_FACTOR;
-        //             let water_amount = water_amount as i32;
-        //             Action::Pump(water_amount)
-        //         }
-        //     }
-        // }
+        unsafe {
+            match self
+                .rules
+                .as_mut()
+                .iter_mut()
+                .map(|rule| rule.evaluate())
+                .find(|has_passed| !has_passed)
+            {
+                Some(_) => Action::Noop,
+                None => {
+                    let water_amount = self.determine_water_amount();
+                    Action::Pump(water_amount)
+                }
+            }
+        }
+    }
+
+    fn determine_water_amount(&self) -> i32 {
+        // TODO: implement a more stable logic
+        let res = (self.threshold - self.latest_humd) as f32 * WATER_FACTOR;
+        res as i32
     }
 
     pub fn handle_humd_input(&mut self, humd_input: i32) -> Result<i32, &'static str> {
@@ -80,24 +99,21 @@ impl Examiner {
             Action::Pump(amount) => {
                 // water here
                 // self.water_count += 1; // might need to think about overflow
-                // unsafe {
-                //     // TODO: implement real watering logic
-                //     // right now it's just turning the lights on and off
-                //     turn_on_pump_for_duration(1);
-
-                //     // rule states clean up post watering
-                //     self.rules
-                //         .as_mut()
-                //         .iter_mut()
-                //         .for_each(|rule| rule.post_water());
-                // };
-                // unsafe { turn_on_pump_for_duration(1) };
+                self.is_watering = true; // not really sure if we need this. There is no chance
+                                         // this would be called by another thread
+                unsafe {
+                    // TODO: implement real watering logic
+                    // right now it's just turning the lights on and off
+                    turn_on_pump_for_duration(amount);
+                };
+                self.post_water();
+                self.is_watering = false;
                 Ok(amount)
             }
             Action::Noop => {
                 // TODO: implement real watering logic
                 // right now it's just turning the lights on and off
-                // unsafe { turn_on_pump_for_duration(0) };
+                unsafe { turn_on_pump_for_duration(0) };
                 Ok(0)
             }
         }
@@ -135,7 +151,7 @@ mod tests {
 
     fn run_test<T>(test: T)
     where
-        T: FnOnce(&mut Pin<Box<Examiner>>) -> () + panic::UnwindSafe,
+        T: FnOnce(&mut Examiner) -> () + panic::UnwindSafe,
     {
         let mut examiner = Examiner::new(TEST_THRESHOLD);
         test(&mut examiner);
@@ -143,35 +159,55 @@ mod tests {
 
     #[test]
     fn test_process_humd_input() {
-        // let threshold = 10;
-        // run_test(move |examiner: &mut Pin<Box<Examiner>>| {
-        //     examiner.set_threshold(threshold);
+        let threshold = 10;
+        run_test(move |examiner: &mut Examiner| {
+            examiner.set_threshold(threshold);
 
-        //     assert_eq!(
-        //         *examiner.get_threshold(),
-        //         threshold,
-        //         "Did not return the correct threshold"
-        //     );
+            assert_eq!(
+                *examiner.get_threshold(),
+                threshold,
+                "Did not return the correct threshold"
+            );
 
-        //     let over_saturated_input = 12;
-        //     let under_saturated_input = 7;
+            let over_saturated_input = 12;
+            let under_saturated_input = 7;
 
-        //     let result = examiner.as_mut().handle_humd_input(over_saturated_input);
-        //     assert_eq!(result, Ok(0));
+            let result = examiner.handle_humd_input(over_saturated_input);
+            assert_eq!(result, Ok(0));
 
-        //     let mut result = Ok(0);
+            let mut result = Ok(0);
 
-        //     // Simulate 100 readings
-        //     for _ in 0..rules::MIN_THRESHOLD_BREACH {
-        //         result = examiner.as_mut().handle_humd_input(under_saturated_input);
-        //     }
-        //     let water_amount = (examiner.threshold - examiner.latest_humd) as f32 * WATER_FACTOR;
-        //     let water_amount = water_amount as i32;
-        //     assert_eq!(result, Ok(water_amount), "Water amount is incorrect");
+            // clean up before next test
+            examiner.post_water();
 
-        //     // Simulate 1 reading, which should not trigger a watering event
-        //     let result = examiner.as_mut().handle_humd_input(under_saturated_input);
-        //     // assert_eq!(result, Ok(0), "1 threshold breach should not trigger a watering event");
-        // })
+            // Simulate 1000 readings
+            for _ in 0..rules::EVAL_MIN_COUNT {
+                result = examiner.handle_humd_input(under_saturated_input);
+            }
+            let water_amount = (examiner.threshold - examiner.latest_humd) as f32 * WATER_FACTOR;
+            let water_amount = water_amount as i32;
+            assert_eq!(result, Ok(water_amount), "Water amount is incorrect");
+
+            // Simulate 1 reading, which should not trigger a watering event
+            examiner.post_water();
+            let result = examiner.handle_humd_input(under_saturated_input);
+            assert_eq!(
+                result,
+                Ok(0),
+                "1 threshold breach should not trigger a watering event"
+            );
+
+            // Simulate 1000 oversaturated readings
+            examiner.post_water();
+            let mut result = Ok(0);
+            for _ in 0..rules::EVAL_MIN_COUNT {
+                result = examiner.handle_humd_input(over_saturated_input);
+            }
+            assert_eq!(
+                result,
+                Ok(0),
+                "Over saturated results should not have produced watering event"
+            );
+        })
     }
 }

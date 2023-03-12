@@ -1,10 +1,9 @@
 use crate::threshold_examiner::Examiner;
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
-use core::mem;
-use core::{pin::Pin, ptr::NonNull};
 
-pub static MIN_THRESHOLD_BREACH: i32 = 1000;
+pub static MIN_THRESHOLD_BREACH: i32 = 900;
+pub static EVAL_MIN_COUNT: i32 = 1000;
 /// This trait is here to make runtime polymorphism happen.
 /// It's here to make the invocation more ergonomics.
 /// But it does not necessarily make it easier to be extensible.
@@ -18,21 +17,38 @@ pub struct MoistureRule<'a> {
     threshold: &'a i32,
     latest_humd: &'a i32,
     threshold_breach_count: i32,
+    eval_count: i32,
 }
 
-impl<'a> Rule for MoistureRule<'a> {
+impl<'a> Rule for MoistureRule<'_> {
+    /// Moistture rule would evaluate to true if and only if the moisture threshold has been
+    /// breached above MIN_THRESHOLD_BREACH out of EVAL_MIN_COUNT times
+    ///
+    /// # Arguments
+    ///
+    /// * self - moisture rule
     fn evaluate(&mut self) -> bool {
+        let mut res = false;
+
+        self.eval_count += 1;
+
         if self.threshold > self.latest_humd {
             self.threshold_breach_count += 1;
-            if self.threshold_breach_count >= MIN_THRESHOLD_BREACH {
-                return true;
-            }
         }
-        false
+
+        if self.eval_count >= EVAL_MIN_COUNT {
+            self.eval_count = 0;
+            if self.threshold_breach_count >= MIN_THRESHOLD_BREACH {
+                res = true;
+            }
+            self.threshold_breach_count = 0;
+        }
+        res
     }
 
     fn post_water(&mut self) {
         self.threshold_breach_count = 0;
+        self.eval_count = 0;
     }
 }
 
@@ -52,12 +68,8 @@ impl Rule for TimeRule {
 }
 
 /// This function needs to be called from the top level **after** Examiner has been instantiated
-pub fn generate_rules_from_examiner<'a>(
-    examiner: *mut Examiner,
-) -> Vec<Box<dyn Rule + 'a>> {
-    let examiner_mut_ref = unsafe {
-        &mut *examiner
-    };
+pub fn generate_rules_from_examiner<'a>(examiner: *mut Examiner) -> Vec<Box<dyn Rule + 'a>> {
+    let examiner_mut_ref = unsafe { &mut *examiner };
     let threshold_ref = examiner_mut_ref.get_threshold();
     let latest_humd_ref = examiner_mut_ref.get_latest_humd();
     vec![
@@ -65,6 +77,7 @@ pub fn generate_rules_from_examiner<'a>(
             threshold: threshold_ref,
             latest_humd: latest_humd_ref,
             threshold_breach_count: 0,
+            eval_count: 0,
         }),
         Box::new(TimeRule {
             window_start: 9,

@@ -17,8 +17,6 @@ extern void *malloc(uintptr_t layout_size);
 
 extern void free(void *ptr);
 
-extern void turn_on_pump_for_duration(int32_t amount);
-
 /**
  * Initializes an examiner and assigns its pointer to one that has been passed in from C side
  *

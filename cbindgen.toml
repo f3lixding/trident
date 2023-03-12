@@ -1,0 +1,6 @@
+language = "C"
+
+include_guard = "TRIDENT_H" 
+
+[export.rename]
+"WrappedExaminer" = "wrapped_examiner_t"
