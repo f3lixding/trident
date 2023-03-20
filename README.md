@@ -35,9 +35,9 @@ fn new(data: String) -> Self {
 ```
 
 *NonNull (vs raw pointer)*
-	- https://doc.rust-lang.org/std/ptr/struct.NonNull.html
-	- You can think of it like a raw pointer, only it is not allowed to be null
-	- [dangling](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.dangling): think of this as a placeholder for a valid pointer. It is up to the implementor to ensure there is a valid reference here. It isn't null but it's not valid either until it's been properly initialized. 
+- https://doc.rust-lang.org/std/ptr/struct.NonNull.html
+- You can think of it like a raw pointer, only it is not allowed to be null
+- [dangling](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.dangling): think of this as a placeholder for a valid pointer. It is up to the implementor to ensure there is a valid reference here. It isn't null but it's not valid either until it's been properly initialized. 
 
 ### no_std
 We're going to have to use no_std here because otherwise the static library might be too big. 
@@ -52,30 +52,30 @@ extern crate alloc;
 ```
 
 *build target*
-	- the build target of interest for us is `thumbv6m-none-eabi`
-	- to properly convey this message to the IDE and the build system, add the [project config file](https://doc.rust-lang.org/cargo/reference/config.html) at `${project_folder}/.cargo/config.toml` the line `[build]\ntarget = "thumbv6m-none-eabi"`
-	- you can check if you have this target installed via running `rustup target list | grep thumbv6m-none-eabi`
+- the build target of interest for us is `thumbv6m-none-eabi`
+- to properly convey this message to the IDE and the build system, add the [project config file](https://doc.rust-lang.org/cargo/reference/config.html) at `${project_folder}/.cargo/config.toml` the line `[build]\ntarget = "thumbv6m-none-eabi"`
+- you can check if you have this target installed via running `rustup target list | grep thumbv6m-none-eabi`
 
 *conditional attribute*
-	- should you include `no_std`, you would need to also configure your project in such a way that it allows testing.
-	- some tests would depend on things that are in `std`. If you simply have `#![no_std]`, your tests would fail. [See this stackoverflow thread here](https://stackoverflow.com/questions/28185854/how-do-i-test-crates-with-no-std).
-	- the answer is to use [conditional attribute](https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg_attr-attribute) to conditionally include the no_std directive.
-	- but even all of this doesn't work, see [this thread here](https://github.com/rust-lang/rust/issues/100766)
+- should you include `no_std`, you would need to also configure your project in such a way that it allows testing.
+- some tests would depend on things that are in `std`. If you simply have `#![no_std]`, your tests would fail. [See this stackoverflow thread here](https://stackoverflow.com/questions/28185854/how-do-i-test-crates-with-no-std).
+- the answer is to use [conditional attribute](https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg_attr-attribute) to conditionally include the no_std directive.
+- but even all of this doesn't work, see [this thread here](https://github.com/rust-lang/rust/issues/100766)
 
 *testing embedded system code with no_std*
-	- https://ferrous-systems.com/blog/test-embedded-app/
-	- for this project for some reason following that set up did not work but the following is how I got it to work
-		- take out the project level config. This does mean you would need to specify your build target when you build
-		- add `#![cfg_attr(not(test), no_std)]` at the root module
-		- above where `#[panic_handler]` is, add `#[cfg(not(test))]`, so it does not get compiled for tests. And because when you would need to specify target when you build, the compiler won't complain about this
-	- to build, run `cargo +nightly build --release --target thumbv6m-none-eabi`
+- https://ferrous-systems.com/blog/test-embedded-app/
+- for this project for some reason following that set up did not work but the following is how I got it to work
+	- take out the project level config. This does mean you would need to specify your build target when you build
+	- add `#![cfg_attr(not(test), no_std)]` at the root module
+	- above where `#[panic_handler]` is, add `#[cfg(not(test))]`, so it does not get compiled for tests. And because when you would need to specify target when you build, the compiler won't complain about this
+- to build, run `cargo +nightly build --release --target thumbv6m-none-eabi`
 
 *alloc*
-	- because you are not including `std` , you need to specify the allocator
-	- https://stackoverflow.com/questions/74012369/no-global-memory-allocator-found-but-one-is-required-link-to-std-or-add-glob
-	- this is still unverified (if it works) but I had deviced externing `free` and `alloc` as such in the following snippet
-	- i did have to resort to using +nightly otherwise the toolchain would complain about unstable feature
-	-  *remember that for nightly the targets are installed separately so you would need to install thumbv6m-none-eabi again*
+- because you are not including `std` , you need to specify the allocator
+- https://stackoverflow.com/questions/74012369/no-global-memory-allocator-found-but-one-is-required-link-to-std-or-add-glob
+- this is still unverified (if it works) but I had deviced externing `free` and `alloc` as such in the following snippet
+- i did have to resort to using +nightly otherwise the toolchain would complain about unstable feature
+-  *remember that for nightly the targets are installed separately so you would need to install thumbv6m-none-eabi again*
 
 ```rust
 #![feature(default_alloc_error_handler)]
